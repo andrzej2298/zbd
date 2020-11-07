@@ -7,7 +7,7 @@ import string
 import json
 
 DATE_FROM = datetime.date(2019, 1, 1)
-DATE_TO = datetime.date(2019, 1, 30)
+DATE_TO = datetime.date(2019, 4, 30)
 DATES = []
 AUDIENCE_COUNT = 100
 DEMOGRAPHY_SIZE = 4
