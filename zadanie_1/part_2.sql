@@ -1,6 +1,6 @@
 select
     contacts.day as dzien,
-    targets.definition as grupa,
+    targets.id - 1 as grupa,
     ads.name as reklama,
     count(distinct users.id) as osob
 from contacts
@@ -13,4 +13,4 @@ on demography.day = contacts.day
 and demography.user_id = users.id
 join targets
 on demography.demography like replace(targets.definition, ' ', '_')
-group by contacts.day, targets.definition, ads.name;
+group by contacts.day, targets.id, ads.name;

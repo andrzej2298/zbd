@@ -8,7 +8,7 @@ targets_unnested as (
 ),
 statistics as (
     select
-        target ->> 'definition' as definition,
+        target -> 'target' as definition,
         file_date,
         audience -> 'person_id' as person_id,
         unnest(string_to_array(audience ->> 'contacts', NULL)) as ad
@@ -18,7 +18,7 @@ statistics as (
 )
 select
     file_date as dzien,
-    definition as grupa,
+    definition::int as grupa,
     ad as reklama,
     count(distinct person_id) as osob
 from statistics
