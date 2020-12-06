@@ -1,3 +1,6 @@
+begin;
+drop index audience_json_content_idx;
+drop index targets_json_content_idx;
 explain analyze with audience_unnested as (
     select file_date, jsonb_array_elements(content) as audience
     from audience_json
@@ -24,3 +27,4 @@ select
 from statistics
 group by dzien, grupa, reklama
 order by dzien, grupa, reklama;
+rollback;

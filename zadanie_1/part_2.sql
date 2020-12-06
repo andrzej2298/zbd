@@ -1,4 +1,4 @@
-select
+explain analyze select
     contacts.day as dzien,
     targets.id - 1 as grupa,
     ads.name as reklama,

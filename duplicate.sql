@@ -1,15 +1,4 @@
 CREATE OR REPLACE FUNCTION
-  add_one(int4)
-RETURNS
-  int4
-AS
-  '/home/zbd/duplicate.so', 'add_one'
-LANGUAGE
-  C
-STRICT
-IMMUTABLE;
-
-CREATE OR REPLACE FUNCTION
   duplicate_sfunc(internal, anynonarray)
 RETURNS
   internal
