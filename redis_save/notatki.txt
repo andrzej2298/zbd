@@ -1,0 +1,2 @@
+config get dbfilename
+config set dbfilename my_dump.rdb
