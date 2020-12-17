@@ -1,0 +1,56 @@
+#+TITLE: SAVE i BGSAVE w Redisie
+#+AUTHOR: Andrzej Michnowski
+#+LATEX_HEADER: \usepackage[margin=0.5in]{geometry}
+#+OPTIONS: date:nil toc:nil
+
+* trwałość danych w Redisie
+
+- W Redisie są dwa mechanizmy zapisywania danych: ~RDB~ (Redis database) i ~AOF~ (Append only file).
+- ~RDB~ polega na zrzucie całej bazy na raz do pliku ~.rdb~.
+- ~AOF~ polega na dopisywaniu każdego polecenia wykonywanego na bazie .
+- Można mieć na raz włączone oba mechanizmy utrwalania danych i jest to wskazane
+  jeśli chcemy mieć trwałość porównywalną z Postgresem.
+- W przyszłości planowane jest połączenie ~RDB~ i ~AOF~ w jeden główny mechanizm.
+
+* plusy ~RDB~
+- bardziej zwięzła reprezentacja danych
+- dobrze nadaje się do backupów
+- ogólnie jest wydajniejsze bo główny proces forkuje, nie wykonuje operacji wejścia/wyjścia sam
+- przywrócenie stanu bazy z ~RDB~ jest szybsze niż z ~AOF~
+- tworzenie zrzutów jest atomowe (proces pisze do pliku tymczasowego i zmienia nazwę dopiero na koniec)
+
+* minusy ~RDB~
+- można robić zrzut np. co 5 min, ale wtedy możemy stracić dane z ostatnich 5 min w przypadku awarii
+- dla dużej bazy nawet sam fork może być kosztowny
+
+* SAVE
+- ~SAVE~ działa synchronicznie, czyli blokuje połączenia na czas robienia zrzutu.
+- Zwykle to nie jest to czego oczekujemy.
+- Chyba że np. fork się nie udał bo nie mamy wystarczająco dużo wolnego RAMU.
+
+* BGSAVE
+- ~BGSAVE~ działa asynchronicznie, czyli blokuje połączenia na czas robienia zrzutu.
+- Może wystąpić błąd, np. jeśli w tym czasie jest przepisywany ~AOF~.
+- Chyba że np. fork się nie udał bo nie mamy wystarczająco dużo wolnego RAMU.
+- ~BGSAVE SCHEDULE~ wykona zrzut w przyszłości, w szczególności nie poleci błąd
+  jak przepisywany jest ~AOF~.
+
+* konfiguracja
+
+#+BEGIN_SRC
+dbfilename my_dump.rdb
+save 5 100  # zrób zrzut w tle co 5 sekund jeśli zmieniło się co najmniej 100 kluczy
+#+END_SRC
+
+* dodatkowe informacje
+
+- polecenie ~LASTSAVE~ daje timestamp UNIXowy ostatniego zrzutu zakończonego powodzeniem
+- wykonanie ~echo 1 > /proc/sys/vm/overcommit_memory~ jest konieczne jeśli nie chcemy żeby
+  zrzuty wymagały, żeby mniej więcej połowa RAMu była wolna (proces potomek wykonujący zrzut
+  potencjalnie mógłby potrzebować tyle RAMu co proces główny, ale mamy copy on write
+  i tak się najprawdopodobniej nie zdarzy)
+
+* linki
+- [[https://redis.io/topics/persistence][trwałość danych przechowywanych w Redisie]]
+- [[https://redis.io/topics/faq#background-saving-fails-with-a-fork-error-under-linux-even-if-i-have-a-lot-of-free-ram][~overcommit_memory~]]
+- [[https://github.com/sripathikrishnan/redis-rdb-tools/wiki/Redis-RDB-Dump-File-Format][Redis RDB Dump File Format]]

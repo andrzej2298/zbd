@@ -1,0 +1,5 @@
+FROM redis
+
+COPY ./redis_save/config/ /usr/local/etc/redis/
+
+ENTRYPOINT ["redis-server", "/usr/local/etc/redis/redis.conf"]
