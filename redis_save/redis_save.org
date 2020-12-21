@@ -7,10 +7,10 @@
 
 - W Redisie są dwa mechanizmy zapisywania danych: ~RDB~ (Redis database) i ~AOF~ (Append only file).
 - ~RDB~ polega na zrzucie całej bazy na raz do pliku ~.rdb~.
-- ~AOF~ polega na dopisywaniu każdego polecenia wykonywanego na bazie .
+- ~AOF~ polega na dopisywaniu każdego polecenia wykonywanego na bazie do pliku append-only.
 - Można mieć na raz włączone oba mechanizmy utrwalania danych i jest to wskazane
   jeśli chcemy mieć trwałość porównywalną z Postgresem.
-- W przyszłości planowane jest połączenie ~RDB~ i ~AOF~ w jeden główny mechanizm.
+- W przyszłości planowane jest połączenie ~RDB~ i ~AOF~ w jeden wspólny mechanizm.
 
 * plusy ~RDB~
 - bardziej zwięzła reprezentacja danych
@@ -26,12 +26,12 @@
 * SAVE
 - ~SAVE~ działa synchronicznie, czyli blokuje połączenia na czas robienia zrzutu.
 - Zwykle to nie jest to czego oczekujemy.
-- Chyba że np. fork się nie udał bo nie mamy wystarczająco dużo wolnego RAMU.
+- Chyba że np. fork się nie udał bo nie mamy wystarczająco dużo wolnego RAMU, wtedy nie mamy wyboru.
 
 * BGSAVE
-- ~BGSAVE~ działa asynchronicznie, czyli blokuje połączenia na czas robienia zrzutu.
+- ~BGSAVE~ działa asynchronicznie, forkuje proces potomny który wykonuje zrzut.
+- Fork może się nie udać bo nie mamy wystarczająco dużo wolnego RAMU.
 - Może wystąpić błąd, np. jeśli w tym czasie jest przepisywany ~AOF~.
-- Chyba że np. fork się nie udał bo nie mamy wystarczająco dużo wolnego RAMU.
 - ~BGSAVE SCHEDULE~ wykona zrzut w przyszłości, w szczególności nie poleci błąd
   jak przepisywany jest ~AOF~.
 
