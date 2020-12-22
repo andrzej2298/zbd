@@ -4,3 +4,5 @@ venv
 *.tex
 *.pdf
 *.rdb
+*.csv
+*.png

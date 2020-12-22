@@ -1,0 +1,42 @@
+#+TITLE: Zadanie 3
+#+AUTHOR: Andrzej Michnowski
+#+LATEX_HEADER: \usepackage[margin=1in]{geometry}
+#+OPTIONS: date:nil toc:nil
+
+* Wprowadzenie
+
+Celem tego raportu jest optymalizacja działania magazynu Świętego Mikołaja w którym elfy kompletują paczki z prezentami. Do obsługi magazynu używana jest baza danych Postgres. Rozpatrzymy różne ustawienia bazy danych które mogą wpłynąć na wydajność magazynu, jak również problemy które mogą się pojawić w przypadku gdy któryś z elfów nie będzie przykładał się do pracy (robił sobie długie przerwy).
+
+* Poziomy izolacji
+
+Pierwszą kwestią, która została zbadana jest wpływ wybranego poziomu izolacji na dwa badane wskaźniki:
+
+- liczbę transakcji zrealizowanych na sekundę
+- liczbę transakcji zakończonych niepowodzeniem
+
+Można zastosować różne poziomy izolacji transakcji wywoływanych przez elfy: ~SERIALIZABLE~, ~REPEATABLE READ~, ~READ COMMITTED~ (domyślnie w Postgresie, równoważne w Postgresie ~READ UNCOMMITTED~).
+
+| poziom izolacji   | transakcje na sekundę | transakcje zakończone niepowodzeniem |
+|-------------------+-----------------------+--------------------------------------|
+| ~SERIALIZABLE~    |                176.95 |                                 1377 |
+| ~REPEATABLE READ~ |                 89.88 |                                 1002 |
+| ~READ COMMITTED~  |                 22.93 |                                  117 |
+
+Zanalizujmy te wyniki. Najwięcej transakcji na sekundę zostało zrealizowanych przy poziomie izolacji ~SERIALIZABLE~. Jest to również poziom izolacji dla którego wystąpiło najwięcej transakcji zakończonych niepowodzeniem. Przy tym podejściu bardzo często występuje błąd ~SERIALIZATION FAILURE~. Przy stosunkowo dużej liczbie połączeń (20) i ograniczonych zasobach prezentów, elfy często próbują skorzystać z tego samego zasobu. Ponad połowa transakcji jest przerywana. W związku z tym elf albo szybko doczeka się na zasób, albo stosunkowo wcześnie i często jego zapytanie zostanie przerwane.
+
+Z drugiej strony jest podejście ~READ COMMITTED~. W tym przypadku znacznie poprawiła się liczba transakcji zakończonych sukcesem i wydłużył się czas transakcji. Błędami występującymi w tym podejściu były ~DEADLOCK~ i ~CHECK VIOLATION~. Pierwszy z nich polegał na tym, że elf A oczekiwał na słodycz zarezerwowany przez elfa B, a elf B oczekiwał na słodycz elfa A. Drugi wynikał z ustawienia warunku ~CHECK(ilosc_pozostalych >= 0))~ na tabeli ~slodycz_w_magazynie~. Warto w tym miejscu wspomnieć, że o ile w tym przypadku taki warunek poprawności możemy łatwo sprawdzić w trakcie transakcji, nie zawsze musi to być możliwe. Być może sprawdzenie pewnego warunku który chielibyśmy zachować wymagałoby kosztownych obliczeń lub obejrzenia dużej liczby danych z bazy.
+
+* Wpływ liczby adwersarzy na wydajność fabryki
+
+W fabryce pracuje 20 elfów. W ramach eksperymentów jeden z nich stał się przeciwnikiem który nie przykłada się do pracy i co chwila wychodzi na kawę w trakcie kompletowania paczki. Zobaczmy jak dodanie adwersarza wpłynęło na wyniki eksperymentu.
+
+[[~/mim/zbd/zadanie_3/adversary_effect.png]]
+
+Zgodnie z oczekiwaniami, dodanie adwersarza zmniejsza liczbę transakcji na sekundę. Jest to związanę między innymi z tym, że sam adwersarz potrzebuje więcej czasu na skompletowanie prezentów jemu przydzielonych, a także z tym, że przetrzymuje on zasoby na które pozostałe elfy muszą czekać.
+
+Adwersarz nie wypłynął znacznie na liczbę transakcji zakończonych niepowodzeniem dla poziomów ~READ COMMITTED~ oraz ~REPEATABLE READ~. Co ciekawe, natomiast, w przypadku ~SERIALIZABLE~ zdarzało się, że dodanie adwersarza zmniejszało liczbę błędów o mniej więcej 100. Prawdopodobnie jest to związane z pozytywnymi efektami zmniejszenia liczby wykonywanych równolegle transakcji.
+
+* COMMENT
+- porównanie poziomów izolacji bez adwersarza
+- wpływ adwersarza na wyniki dla różnych poziomów izolacji
+- zapobieganie efektom adwersarza

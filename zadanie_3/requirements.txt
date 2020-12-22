@@ -2,3 +2,7 @@ psycopg2==2.8.6
 
 numpy~=1.19.4
 Faker~=5.0.1
+matplotlib~=3.3.3
+seaborn~=0.11.1
+pydantic~=1.7.3
+pandas~=1.1.5
