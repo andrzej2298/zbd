@@ -22,19 +22,383 @@ Można zastosować różne poziomy izolacji transakcji wywoływanych przez elfy:
 | ~REPEATABLE READ~ |                 89.88 |                                 1002 |
 | ~READ COMMITTED~  |                 22.93 |                                  117 |
 
-Zanalizujmy te wyniki. Najwięcej transakcji na sekundę zostało zrealizowanych przy poziomie izolacji ~SERIALIZABLE~. Jest to również poziom izolacji dla którego wystąpiło najwięcej transakcji zakończonych niepowodzeniem. Przy tym podejściu bardzo często występuje błąd ~SERIALIZATION FAILURE~. Przy stosunkowo dużej liczbie połączeń (20) i ograniczonych zasobach prezentów, elfy często próbują skorzystać z tego samego zasobu. Ponad połowa transakcji jest przerywana. W związku z tym elf albo szybko doczeka się na zasób, albo stosunkowo wcześnie i często jego zapytanie zostanie przerwane.
+(Łączna liczba transakcji które elfy próbują wykonać to 2000 -- 20 elfów po 100 transakcji.) Zanalizujmy te wyniki. Najwięcej transakcji na sekundę zostało zrealizowanych przy poziomie izolacji ~SERIALIZABLE~. Jest to również poziom izolacji dla którego wystąpiło najwięcej transakcji zakończonych niepowodzeniem. Przy tym podejściu bardzo często występuje błąd ~SERIALIZATION FAILURE~. Przy stosunkowo dużej liczbie równoczesnych połączeń (20) i ograniczonych zasobach prezentów, elfy często próbują skorzystać z tego samego zasobu. Ponad połowa transakcji jest przerywana. W związku z tym elf albo szybko doczeka się na zasób, albo stosunkowo wcześnie i często jego zapytanie zostanie przerwane.
 
-Z drugiej strony jest podejście ~READ COMMITTED~. W tym przypadku znacznie poprawiła się liczba transakcji zakończonych sukcesem i wydłużył się czas transakcji. Błędami występującymi w tym podejściu były ~DEADLOCK~ i ~CHECK VIOLATION~. Pierwszy z nich polegał na tym, że elf A oczekiwał na słodycz zarezerwowany przez elfa B, a elf B oczekiwał na słodycz elfa A. Drugi wynikał z ustawienia warunku ~CHECK(ilosc_pozostalych >= 0))~ na tabeli ~slodycz_w_magazynie~. Warto w tym miejscu wspomnieć, że o ile w tym przypadku taki warunek poprawności możemy łatwo sprawdzić w trakcie transakcji, nie zawsze musi to być możliwe. Być może sprawdzenie pewnego warunku który chielibyśmy zachować wymagałoby kosztownych obliczeń lub obejrzenia dużej liczby danych z bazy.
+Innym poziomem izolacji ~READ COMMITTED~. W tym przypadku znacznie poprawia się liczba transakcji zakończonych sukcesem i wydłuża się czas transakcji. Błędami występującymi w tym podejściu były ~DEADLOCK~ i ~CHECK VIOLATION~. Pierwszy z nich polegał na tym, że elf A oczekiwał na słodycz zarezerwowany przez elfa B, a elf B oczekiwał na słodycz elfa A. Drugi wynikał z ustawienia warunku ~CHECK(ilosc_pozostalych >= 0))~ na tabeli ~slodycz_w_magazynie~. Warto w tym miejscu wspomnieć, że o ile w tym przypadku taki warunek poprawności możemy łatwo sprawdzić w trakcie transakcji, nie zawsze musi to być możliwe. Być może sprawdzenie pewnego warunku który chielibyśmy zachować wymagałoby kosztownych obliczeń lub obejrzenia dużej liczby danych z bazy.
 
-* Wpływ liczby adwersarzy na wydajność fabryki
+Poziom ~REPEATABLE READ~ wypada pomiędzy dwoma pozostałymi poziomami. Wydaje się, że w tym przypadku nie warto go wybierać. Jeśli priorytetem jest minimalizacja liczby transakcji zakończonych niepowodzeniem, to lepszy wydaje się ~READ COMMITED~. Jeśli priorytetem jest natomiast maksymalizacja liczby transakcji na sekundę, to przy niewielkiej zwyżce liczby transakcji przerwanych zyskujemy dużo wybierając ~SERIALIZABLE~.
 
-W fabryce pracuje 20 elfów. W ramach eksperymentów jeden z nich stał się przeciwnikiem który nie przykłada się do pracy i co chwila wychodzi na kawę w trakcie kompletowania paczki. Zobaczmy jak dodanie adwersarza wpłynęło na wyniki eksperymentu.
+* Wpływ adwersarza na wydajność fabryki
+
+W fabryce pracuje 20 elfów. W ramach eksperymentów jeden z nich stał się przeciwnikiem który nie przykłada się do pracy i co chwilę wychodzi na kawę w trakcie kompletowania paczki. Zobaczmy jak dodanie adwersarza wpłynęło na wyniki eksperymentu.
 
 [[~/mim/zbd/zadanie_3/adversary_effect.png]]
 
 Zgodnie z oczekiwaniami, dodanie adwersarza zmniejsza liczbę transakcji na sekundę. Jest to związanę między innymi z tym, że sam adwersarz potrzebuje więcej czasu na skompletowanie prezentów jemu przydzielonych, a także z tym, że przetrzymuje on zasoby na które pozostałe elfy muszą czekać.
 
-Adwersarz nie wypłynął znacznie na liczbę transakcji zakończonych niepowodzeniem dla poziomów ~READ COMMITTED~ oraz ~REPEATABLE READ~. Co ciekawe, natomiast, w przypadku ~SERIALIZABLE~ zdarzało się, że dodanie adwersarza zmniejszało liczbę błędów o mniej więcej 100. Prawdopodobnie jest to związane z pozytywnymi efektami zmniejszenia liczby wykonywanych równolegle transakcji.
+Adwersarz nie wypłynął znacznie na liczbę transakcji zakończonych niepowodzeniem dla poziomów ~READ COMMITTED~ oraz ~REPEATABLE READ~. Co ciekawe, natomiast, w przypadku ~SERIALIZABLE~ zdarzało się, że dodanie adwersarza zmniejszało nielicznie liczbę błędów. Prawdopodobnie jest to związane z pozytywnymi efektami ograniczenia liczby wykonywanych równolegle transakcji przy równoczesnych restrykcyjnych założeniach dotyczących serializacji transakcji.
+
+Żeby zmniejszyć wpływ samego czasu potrzebnego na skompletowanie paczek przez adwersarza na liczbę transakcji na sekundę, adwersarz kończy robić przerwy gdy wszystkie pozostałe elfy skończyły swoje paczki (przykładowo gdyby adwersarz robił godzinną przerwę na każdą ze swoich dziesięciu paczek, podczas gdy pozostałe elfy skończyłyby kompletować swoje paczki w czasie krótszym niż godzina, to łączny czas skompletowania wszystkich paczek wzrósłby do 10 h, co nieproporcjonalnie wpłynęłoby na średnią liczbę transakcji na sekundę).
+
+\pagebreak
+
+* Różne przykłady adwersarza
+
+Popatrzmy na różnicę w liczbie transakcji na sekundę oraz liczbie nieudanych transakcji ze względu na miejsce, w którym adwersarz idzie na przerwę. W kodzie poniżej są zaznaczone cztery miejsca (0-3), w których proces elfa wykonywał ~sleep~. Zauważalne jest, że dla ~REPEATABLE READ~ oraz ~READ COMMITED~ istotnie mniej szkodliwy jest adwersarz śpiący w miejscu ~2~. O ile wydaje się jasne, że spanie w miejscu ~3~ jest szkodliwe ze względu na to, że występuje pomiędzy dwoma operacjami na tych samych wierszach tabeli ~slodycz_w_magazynie~, o tyle nie znajduję wytłumaczenia dla różnicy między wynikami dla miejsca ~2~, a wynikami dla miejsc ~0~ i ~1~.
+
+#+BEGIN_SRC
+begin isolation level ...;
+#+END_SRC
+**break position 0**
+#+BEGIN_SRC
+--- tworzenie nowej paczki
+insert into paczka (kraj, opis_obdarowanego)
+values (..., ...) returning identyfikator;
+#+END_SRC
+**break position 1**
+#+BEGIN_SRC
+--- dla wszystkich słodyczy w paczce
+insert into slodycz_w_paczce
+values (..., ..., ...);
+#+END_SRC
+**break position 2**
+#+BEGIN_SRC
+--- skompletuj słodycz do paczki
+select ilosc_pozostalych
+from slodycz_w_magazynie
+where nazwa = ...;
+#+END_SRC
+**break position 3**
+#+BEGIN_SRC
+update slodycz_w_magazynie
+set ilosc_pozostalych = ilosc_pozostalych - ...
+where nazwa = ...;
+--- jeśli się nie udało znajdź słodycz podobny
+select ktory_slodycz_jest_podobny
+from podobny_slodycz
+where do_czego_slodycz_jest_podobny = ...
+order by podobienstwo desc;
+--- pobierz podobny słodycz jeśli udało się go znaleźć
+#+END_SRC
+
+[[~/mim/zbd/zadanie_3/break_positions.png]]
+[[~/mim/zbd/zadanie_3/break_positions_failures.png]]
+
+* ~idle_in_transaction_session_timeout~
+
+Zakładając, że w fabryce elfów czas wykonania transakcji jest raczej krótki (kompletowanie paczki trwa istotnie krócej niż przerwa na kawę adwersarza), można wprowadzić maksymalny czas bezczynności transakcji. W tym podejściu transakcje, które przekroczą ten limit są przerywane. Zmienną odpowiedzialną za to jest ~idle_in_transaction_session_timeout~, jej wartość oznacza czas w milisekundach po którym bezczynna transakcja będzie przerwana.
+
+Dodając taki limit możemy zabić transakcje adwersarza, co powinno poprawić liczbę przeprowadzonych transakcji na sekundę.
+
+Minusem tego podejścia jest fakt, że zastosowanie go wymaga poczynienia pewnych założeń o bazie danych. Być może na bazie powinny działać transakcje o długim czasie bezczynności. W tym przypadku ustawienie takiego limitu uniemożliwi ich wykonywanie.
+
+Niestety, przeprowadzone próby (~set idle_in_transaction_session_timeout = 1000~) nie wykazały, że to podejście istotnie poprawia lub pogorsza badane wskaźniki. Poniżej w tabeli są podane próbki wyników porównujących rozwiązanie z ustawionym limitem i bez ustawionego limitu. Eksperyment został przeprowadzony kilkukrotnie (z różnymi czasami przerwy adwersarza) i w żadnym przypadku nie wyszły istotne różnice.
+
+** ~idle_in_transaction_session_timeout~ ustawiony
+
+| ~isolation level~ | ~transactions_per_second~ | ~failed_transactions~ |
+|-------------------+---------------------------+-----------------------|
+| ~SERIALIZABLE~    |                     54.46 |                  1325 |
+| ~REPEATABLE READ~ |                     56.55 |                  1289 |
+| ~READ COMMITTED~  |                     19.75 |                   235 |
+
+** ~idle_in_transaction_session_timeout~ nieustawiony
+
+| ~isolation level~ | ~transactions_per_second~ | ~failed_transactions~ |
+|-------------------+---------------------------+-----------------------|
+| ~SERIALIZABLE~    |                     48.85 |                  1379 |
+| ~REPEATABLE READ~ |                     68.43 |                  1148 |
+| ~READ COMMITTED~  |                     14.37 |                   300 |
+
+
+* Podsumowanie
+
+W efekcie przeprowadzonych badań możemy stwierdzić, że w przypadku bazy danych magazynu Świętego Mikołaja najkorzystniejsze jest wykorzystanie poziomu izolacji ~READ COMMITED~. Jest to jedyne podejście dające sensowne liczby transakcji zakończonych sukcesem. Niestety, w trakcie eksperymentów nie wyszły żadne inne rzeczy, które mogłyby usprawnić pracę elfów.
+
+Dodanie adwersarza faktycznie pogorszyło wyniki pracy. Udało się ustalić, którzy adwersarze są mniej groźni, a którzy są bardziej groźni (ze względu na moment w którym idą na przerwę). Zaproponowałem jeden sposób, w który można by zmniejszyć szkodliwość adwersarza, pod warunkiem, że dopuszcza się efekty uboczne w postaci zabijania transakcji będących długo bezczynnie. Niestety, w rozpatrywanej sytuacji okazało się, że dodanie tego zabezpieczenia nie poprawia istotnie liczby transakcji zakończonych powodzeniem zrealizowanych na sekundę. Być może przy innym doborze parametrów ta różnica zaczęłaby być widoczna.
+
+Ogólnie dane liczbowe podane w tym raporcie powinny być traktowane ostrożnie. Różnica poszczególnych wyników pomiędzy wywołaniami potrafiła być znaczna mimo stosunkowo długiego czasu działania jednego wywołania (rzędu kilkunastu/kilkudziesięciu minut).
+
+\pagebreak
+
+* Kod programu
+
+#+BEGIN_SRC python
+import itertools
+from collections import OrderedDict
+from datetime import datetime
+from enum import Enum
+from multiprocessing import Pool
+from time import sleep
+
+import faker
+import faker.config
+import matplotlib.pyplot as plt
+import numpy as np
+import psycopg2
+import psycopg2.errors
+import psycopg2.extras
+import seaborn as sns
+import pandas as pd
+from pydantic import BaseModel
+from typing import List, Tuple, Literal
+
+ELVES_COUNT = 20
+DATABASE_SETUP = "dbname=database" \
+                 " user=root" \
+                 " host=127.0.0.1" \
+                 " password=password"
+
+
+class IsolationLevel(Enum):
+    SERIALIZABLE = "serializable"
+    REPEATABLE_READ = "repeatable read"
+    READ_COMMITTED = "read committed"
+
+
+class Settings(BaseModel):
+    MAX_CANDIES: int
+    SINGLE_ELF_PRESENTS: int
+    MAX_CANDIES_IN_PRESENT: int
+    MAX_CANDIES_TO_PICK: int
+    MAX_SIMILAR_CANDIES: int
+    ISOLATION_LEVEL: IsolationLevel
+    ADVERSARIES: int
+    BREAK_LOCATION: Literal[0, 1, 2, 3, 4]
+
+
+class Status(Enum):
+    SUCCESS = "SUCCESS"
+    DEADLOCK = "DEADLOCK"
+    CHECK_VIOLATION = "CHECK_VIOLATION"
+    SERIALIZATION_FAILURE = "SERIALIZATION_FAILURE"
+    SYNTAX_ERROR = "SYNTAX_ERROR"
+    KILLED = "KILLED"
+
+
+def add_candies(candies, cur, settings: Settings):
+    result = []
+    for candy in candies:
+        candy_count = np.random.randint(settings.MAX_CANDIES)
+        candy = candy.replace("'", "").replace("\n", "")
+        cur.execute(f"insert into slodycz_w_magazynie values ('{candy}', '{candy_count}')")
+        result.append(candy)
+    return result
+
+
+def add_present_contents(candies, serial, cur, settings: Settings):
+    candies_for_person = np.random.randint(1, settings.MAX_CANDIES_IN_PRESENT)
+    chosen_candy = np.random.choice(candies, size=candies_for_person, replace=False)
+    result = []
+
+    for candy in chosen_candy:
+        chosen_quantity = np.random.randint(1, settings.MAX_CANDIES_TO_PICK)
+        cur.execute(f"insert into slodycz_w_paczce"
+                    f" values ({serial}, '{candy}', {chosen_quantity})")
+        result.append((serial, candy, chosen_quantity))
+    return result
+
+
+def add_similarities(candies, cur, settings: Settings):
+    for candy in candies:
+        similar_candy_count = np.random.randint(settings.MAX_SIMILAR_CANDIES)
+        similar_candies = [c for c in np.random.choice(candies, size=similar_candy_count) if c != candy]
+        similarities = np.random.uniform(size=similar_candy_count)
+        for (similar_candy, similarity) in zip(similar_candies, similarities):
+            cur.execute(f"insert into podobny_slodycz values ('{candy}', '{similar_candy}', {similarity})")
+
+
+def prepare_database(settings: Settings):
+    with open("candies.txt") as candies, open("prepare_database.sql") as prepare_file, \
+            psycopg2.connect(DATABASE_SETUP) as conn:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        cur.execute(prepare_file.read())
+        candies = add_candies(candies, cur, settings)
+        add_similarities(candies, cur, settings)
+
+        return candies
+
+
+def run_elf(assignment):
+    (worker_no, candy_names, settings) = assignment
+
+    print(f"elf {worker_no} starts")
+    conn = psycopg2.connect(DATABASE_SETUP)
+    fake = faker.Faker(OrderedDict((locale, 1) for locale in faker.config.AVAILABLE_LOCALES))
+    cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    # cur.execute("set idle_in_transaction_session_timeout = 1000")
+    chosen_nationalities = np.random.choice(faker.config.AVAILABLE_LOCALES, settings.SINGLE_ELF_PRESENTS)
+    results = []
+
+    for nationality in chosen_nationalities:
+        name = fake[nationality].name().replace("'", "")
+        country = nationality
+
+        try:
+            results.append(ship_one_present(candy_names, country, cur, settings, name, worker_no))
+        except psycopg2.errors.IdleInTransactionSessionTimeout:
+            results.append(Status.KILLED)
+            conn = psycopg2.connect(DATABASE_SETUP)
+            cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+
+    conn.close()
+    print(f"elf {worker_no} ends")
+    return results
+
+
+def ship_one_present(candy_names, country, cur, settings, name, worker_no) -> Status:
+    cur.execute(f"begin isolation level {settings.ISOLATION_LEVEL.value}")
+    adversary_sleep(cur, worker_no, settings, 0)
+    # defining the present
+    cur.execute(f"insert into paczka (kraj, opis_obdarowanego)"
+                f" values ('{country}', '{name}')"
+                f" returning identyfikator")
+    serial = cur.fetchone()["identyfikator"]
+    adversary_sleep(cur, worker_no, settings, 1)
+    try:
+        candies = add_present_contents(candy_names, serial, cur, settings)
+        adversary_sleep(cur, worker_no, settings, 2)
+        for (serial, candy, chosen_quantity) in candies:
+            if not fetch_one_candy(candy, chosen_quantity, cur, settings, worker_no):
+                adversary_sleep(cur, worker_no, settings, 4)
+                substitute_found = False
+                cur.execute(f"select ktory_slodycz_jest_podobny"
+                            f" from podobny_slodycz"
+                            f" where do_czego_slodycz_jest_podobny = '{candy}'"
+                            f" order by podobienstwo desc")
+                substitutes = cur.fetchall()
+                for substitute in substitutes:
+                    substitute_candy = substitute["ktory_slodycz_jest_podobny"]
+                    substitute_found = fetch_one_candy(substitute_candy, chosen_quantity, cur, settings, worker_no)
+                    if substitute_found:
+                        break
+                if not substitute_found:
+                    cur.execute("rollback")
+                    return Status.CHECK_VIOLATION
+        cur.execute("commit")
+    except psycopg2.errors.DeadlockDetected:
+        cur.execute("rollback")
+        return Status.DEADLOCK
+    except psycopg2.errors.SyntaxError:
+        cur.execute("rollback")
+        return Status.SYNTAX_ERROR
+    except psycopg2.errors.CheckViolation:
+        cur.execute("rollback")
+        return Status.CHECK_VIOLATION
+    except psycopg2.errors.SerializationFailure:
+        cur.execute("rollback")
+        return Status.SERIALIZATION_FAILURE
+    except psycopg2.InterfaceError:
+        return Status.KILLED
+    else:
+        return Status.SUCCESS
+
+
+def fetch_one_candy(candy, chosen_quantity, cur, settings: Settings, worker_no):
+    cur.execute(f"select ilosc_pozostalych"
+                f" from slodycz_w_magazynie"
+                f" where nazwa = '{candy}'")
+    remaining = cur.fetchone()["ilosc_pozostalych"]
+    if remaining >= chosen_quantity:
+        adversary_sleep(cur, worker_no, settings, 3)
+        cur.execute(f"update slodycz_w_magazynie"
+                    f" set ilosc_pozostalych = ilosc_pozostalych - {chosen_quantity}"
+                    f" where nazwa = '{candy}'")
+        return True
+    else:
+        return False
+
+
+def adversary_sleep(cur, worker_no, settings, location):
+    is_adversary = worker_no < settings.ADVERSARIES
+    if location == settings.BREAK_LOCATION and is_adversary:
+        cur.execute("select sum(numbackends) from pg_stat_database")
+        ongoing_transactions = cur.fetchone()["sum"]
+        if ongoing_transactions > 1 + settings.ADVERSARIES:
+            print("adversary sleeps")
+            sleep(10)
+
+
+if __name__ == "__main__":
+    figure_no = 1
+    sns.set_theme()
+    transactions_per_second_columns = []
+    transactions_per_second_data = []
+    failed_transactions = []
+    # for (isolation_level, max_candies) in [(IsolationLevel.SERIALIZABLE, 500)]:
+    for (isolation_level, max_candies, adversaries, break_location) in itertools.product(
+            IsolationLevel,
+            [1000], [1],
+            list(range(4))
+    ):
+        # for (isolation_level, max_candies, adversaries) in itertools.product(IsolationLevel, [1000], list(range(5))):
+        factory_settings = Settings(
+            MAX_CANDIES=max_candies,
+            SINGLE_ELF_PRESENTS=100,
+            MAX_CANDIES_IN_PRESENT=10,
+            MAX_CANDIES_TO_PICK=10,
+            MAX_SIMILAR_CANDIES=10,
+            ISOLATION_LEVEL=isolation_level,
+            ADVERSARIES=adversaries,
+            BREAK_LOCATION=break_location,
+        )
+        experiment_name = f"timeouted_{isolation_level.value.replace(' ', '_')}" \
+                          f"_{factory_settings.MAX_CANDIES}" \
+                          f"_a{adversaries}_b{break_location}"
+        print(f"start {experiment_name}")
+        all_candies = prepare_database(factory_settings)
+        elf_assignments = [(i, all_candies, factory_settings) for i in range(ELVES_COUNT)]
+        time_before = datetime.now()
+        with Pool(ELVES_COUNT) as p:
+            current_results: List[List[Status]] = p.map(run_elf, elf_assignments)
+        time_after = datetime.now()
+        global_time = (time_after - time_before).total_seconds()
+
+        present_statuses: List[Status] = []
+
+        for elf_result in current_results:
+            for present_status in elf_result:
+                present_statuses.append(present_status)
+
+        succeeded_transactions = len(list(filter(lambda x: x == Status.SUCCESS, present_statuses)))
+        transactions_per_second = succeeded_transactions / global_time
+        transactions_per_second_data.append(transactions_per_second)
+        transactions_per_second_columns.append(experiment_name)
+        failed_transactions.append(len(present_statuses) - succeeded_transactions)
+        print(transactions_per_second)
+        statuses: List[Status] = list(Status)
+        status_counts: List[int] = []
+        for status in statuses:
+            status_counts.append(len([i for i in present_statuses if str(i) == str(status)]))
+        data = {
+            "status": list(map(lambda x: x.value, statuses)),
+            "count": status_counts,
+        }
+        df = pd.DataFrame(data)
+        print(data)
+        print(df)
+
+        plt.figure(figure_no)
+        figure_no += 1
+        ax = sns.barplot(x="status", y="count", data=data)
+        ax.set_title(f"isolation level: {isolation_level.value.upper()}")
+        ax.set_xticklabels(ax.get_xticklabels(), rotation=30)
+        plt.tight_layout()
+        plot_file_name = f"statuses_{experiment_name}.png"
+        csv_file_name = f"statuses_{experiment_name}.csv"
+        df.to_csv(csv_file_name)
+        plt.savefig(plot_file_name)
+    transactions_data = {
+        "experiment": transactions_per_second_columns,
+        "transactions_per_second": transactions_per_second_data,
+        "failed_transactions": failed_transactions,
+    }
+    transactions_df = pd.DataFrame(transactions_data)
+    print(transactions_data)
+    print(transactions_df)
+    transactions_df.to_csv("transactions_per_second.csv")
+#+END_SRC
+
 
 * COMMENT
 - porównanie poziomów izolacji bez adwersarza

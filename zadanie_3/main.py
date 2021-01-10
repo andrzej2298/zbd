@@ -15,8 +15,7 @@ import psycopg2.extras
 import seaborn as sns
 import pandas as pd
 from pydantic import BaseModel
-from typing import List, Tuple
-
+from typing import List, Tuple, Literal
 
 ELVES_COUNT = 20
 DATABASE_SETUP = "dbname=database" \
@@ -39,6 +38,7 @@ class Settings(BaseModel):
     MAX_SIMILAR_CANDIES: int
     ISOLATION_LEVEL: IsolationLevel
     ADVERSARIES: int
+    BREAK_LOCATION: Literal[0, 1, 2, 3, 4]
 
 
 class Status(Enum):
@@ -47,6 +47,7 @@ class Status(Enum):
     CHECK_VIOLATION = "CHECK_VIOLATION"
     SERIALIZATION_FAILURE = "SERIALIZATION_FAILURE"
     SYNTAX_ERROR = "SYNTAX_ERROR"
+    KILLED = "KILLED"
 
 
 def add_candies(candies, cur, settings: Settings):
@@ -83,7 +84,7 @@ def add_similarities(candies, cur, settings: Settings):
 
 def prepare_database(settings: Settings):
     with open("candies.txt") as candies, open("prepare_database.sql") as prepare_file, \
-         psycopg2.connect(DATABASE_SETUP) as conn:
+            psycopg2.connect(DATABASE_SETUP) as conn:
         cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
         cur.execute(prepare_file.read())
         candies = add_candies(candies, cur, settings)
@@ -96,33 +97,44 @@ def run_elf(assignment):
     (worker_no, candy_names, settings) = assignment
 
     print(f"elf {worker_no} starts")
-    with psycopg2.connect(DATABASE_SETUP) as conn:
-        fake = faker.Faker(OrderedDict((locale, 1) for locale in faker.config.AVAILABLE_LOCALES))
-        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
-        chosen_nationalities = np.random.choice(faker.config.AVAILABLE_LOCALES, settings.SINGLE_ELF_PRESENTS)
-        results = []
+    conn = psycopg2.connect(DATABASE_SETUP)
+    fake = faker.Faker(OrderedDict((locale, 1) for locale in faker.config.AVAILABLE_LOCALES))
+    cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    # cur.execute("set idle_in_transaction_session_timeout = 1000")
+    chosen_nationalities = np.random.choice(faker.config.AVAILABLE_LOCALES, settings.SINGLE_ELF_PRESENTS)
+    results = []
 
-        for nationality in chosen_nationalities:
-            name = fake[nationality].name().replace("'", "")
-            country = nationality
+    for nationality in chosen_nationalities:
+        name = fake[nationality].name().replace("'", "")
+        country = nationality
 
+        try:
             results.append(ship_one_present(candy_names, country, cur, settings, name, worker_no))
+        except psycopg2.errors.IdleInTransactionSessionTimeout:
+            results.append(Status.KILLED)
+            conn = psycopg2.connect(DATABASE_SETUP)
+            cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
 
-        print(f"elf {worker_no} ends")
-        return results
+    conn.close()
+    print(f"elf {worker_no} ends")
+    return results
 
 
 def ship_one_present(candy_names, country, cur, settings, name, worker_no) -> Status:
     cur.execute(f"begin isolation level {settings.ISOLATION_LEVEL.value}")
+    adversary_sleep(cur, worker_no, settings, 0)
     # defining the present
     cur.execute(f"insert into paczka (kraj, opis_obdarowanego)"
                 f" values ('{country}', '{name}')"
                 f" returning identyfikator")
     serial = cur.fetchone()["identyfikator"]
+    adversary_sleep(cur, worker_no, settings, 1)
     try:
         candies = add_present_contents(candy_names, serial, cur, settings)
+        adversary_sleep(cur, worker_no, settings, 2)
         for (serial, candy, chosen_quantity) in candies:
             if not fetch_one_candy(candy, chosen_quantity, cur, settings, worker_no):
+                adversary_sleep(cur, worker_no, settings, 4)
                 substitute_found = False
                 cur.execute(f"select ktory_slodycz_jest_podobny"
                             f" from podobny_slodycz"
@@ -150,6 +162,8 @@ def ship_one_present(candy_names, country, cur, settings, name, worker_no) -> St
     except psycopg2.errors.SerializationFailure:
         cur.execute("rollback")
         return Status.SERIALIZATION_FAILURE
+    except psycopg2.InterfaceError:
+        return Status.KILLED
     else:
         return Status.SUCCESS
 
@@ -158,21 +172,25 @@ def fetch_one_candy(candy, chosen_quantity, cur, settings: Settings, worker_no):
     cur.execute(f"select ilosc_pozostalych"
                 f" from slodycz_w_magazynie"
                 f" where nazwa = '{candy}'")
-    is_adversary = worker_no < settings.ADVERSARIES
     remaining = cur.fetchone()["ilosc_pozostalych"]
     if remaining >= chosen_quantity:
-        if is_adversary:
-            cur.execute("select sum(numbackends) from pg_stat_database")
-            ongoing_transactions = cur.fetchone()["sum"]
-            if ongoing_transactions > 1 + settings.ADVERSARIES:
-                print("adversary sleeps")
-                sleep(5)
+        adversary_sleep(cur, worker_no, settings, 3)
         cur.execute(f"update slodycz_w_magazynie"
                     f" set ilosc_pozostalych = ilosc_pozostalych - {chosen_quantity}"
                     f" where nazwa = '{candy}'")
         return True
     else:
         return False
+
+
+def adversary_sleep(cur, worker_no, settings, location):
+    is_adversary = worker_no < settings.ADVERSARIES
+    if location == settings.BREAK_LOCATION and is_adversary:
+        cur.execute("select sum(numbackends) from pg_stat_database")
+        ongoing_transactions = cur.fetchone()["sum"]
+        if ongoing_transactions > 1 + settings.ADVERSARIES:
+            print("adversary sleeps")
+            sleep(10)
 
 
 if __name__ == "__main__":
@@ -182,8 +200,12 @@ if __name__ == "__main__":
     transactions_per_second_data = []
     failed_transactions = []
     # for (isolation_level, max_candies) in [(IsolationLevel.SERIALIZABLE, 500)]:
-    for (isolation_level, max_candies, adversaries) in itertools.product([IsolationLevel.SERIALIZABLE], [1000], list(range(5))):
-    # for (isolation_level, max_candies, adversaries) in itertools.product(IsolationLevel, [1000], list(range(5))):
+    for (isolation_level, max_candies, adversaries, break_location) in itertools.product(
+            IsolationLevel,
+            [1000], [1],
+            list(range(4))
+    ):
+        # for (isolation_level, max_candies, adversaries) in itertools.product(IsolationLevel, [1000], list(range(5))):
         factory_settings = Settings(
             MAX_CANDIES=max_candies,
             SINGLE_ELF_PRESENTS=100,
@@ -192,10 +214,11 @@ if __name__ == "__main__":
             MAX_SIMILAR_CANDIES=10,
             ISOLATION_LEVEL=isolation_level,
             ADVERSARIES=adversaries,
+            BREAK_LOCATION=break_location,
         )
-        experiment_name = f"{isolation_level.value.replace(' ', '_')}" \
+        experiment_name = f"timeouted_{isolation_level.value.replace(' ', '_')}" \
                           f"_{factory_settings.MAX_CANDIES}" \
-                          f"_a{adversaries}"
+                          f"_a{adversaries}_b{break_location}"
         print(f"start {experiment_name}")
         all_candies = prepare_database(factory_settings)
         elf_assignments = [(i, all_candies, factory_settings) for i in range(ELVES_COUNT)]

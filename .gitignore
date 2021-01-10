@@ -6,3 +6,5 @@ venv
 *.rdb
 *.csv
 *.png
+.devcontainer
+.vscode

@@ -1,20 +1,30 @@
-version: "3.3"
+version: "2.4"
 services:
   database:
-    image: postgres
+    build:
+      context: ./
+      dockerfile: Dockerfile-postgres
+    cpus: 1
+    mem_limit: 512M
     environment:
       - POSTGRES_USER=root
       - POSTGRES_PASSWORD=password
       - POSTGRES_DB=database
     ports:
       - "5432:5432"
+    volumes:
+      - ./zadanie_4/postgres:/workspace
   redis:
     build:
       context: ./
       dockerfile: Dockerfile-redis
+    cpus: 1
+    mem_limit: 512M
+    # volumes:
+    #   - ./redis_save/config/:/usr/local/etc/redis/
+    #   - ./redis_save/:/data
     volumes:
-      - ./redis_save/config/:/usr/local/etc/redis/
-      - ./redis_save/:/data
+      - ./zadanie_4/redis:/workspace
     ports:
       - "6379:6379"
         # command:
