@@ -13,10 +13,10 @@ fake = faker.Faker()
 
 for message in p.listen():
     serial = int(message["data"])
-    user = f"users:{serial}"
+    request = f"requests:{serial}"
     country = fake.country().replace("'", "")
     city = fake.city().replace("'", "")
-    r.hset(user, "country", country)
-    r.hset(user, "city", city)
+    r.hset(request, "country", country)
+    r.hset(request, "city", city)
     r.publish(channel_output, serial)
-    print(user, country, city)
+    print(request, country, city)

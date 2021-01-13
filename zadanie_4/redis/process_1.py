@@ -2,6 +2,7 @@ import sys
 import redis
 import numpy as np
 import faker
+from datetime import datetime
 from time import sleep
 
 node_no = sys.argv[1]
@@ -12,12 +13,14 @@ fake = faker.Faker()
 
 while True:
     serial = r.incr("users")
-    user = f"users:{serial}"
+    request = f"requests:{serial}"
     cookie = fake.md5()
     ip = fake.ipv4()
-    r.hset(user, "user_cookie", cookie)
-    r.hset(user, "ip", ip)
+    r.hset(request, "user_cookie", cookie)
+    r.hset(request, "ip", ip)
+    dt = str(datetime.now())
+    r.hset(request, "datetime", dt)
     r.publish(channel, serial)
-    print(user, cookie, ip)
+    print(request, cookie, ip, dt)
     sleep(.1)
 

@@ -1,4 +1,4 @@
-for i in $(seq 1 10)
+for i in $(seq 1 1)
 do
   screen -S "p1$i" -dm python3 "process_1.py" "$i"
   screen -S "p2$i" -dm python3 "process_2.py" "$i"

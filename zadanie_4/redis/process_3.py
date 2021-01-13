@@ -1,59 +1,11 @@
-# import select
-# import sys
-
-# import psycopg2
-# import psycopg2.extras
-# import psycopg2.extensions
-# import faker
-# import numpy as np
-# from enum import Enum, auto
-
-# DATABASE_SETUP = "dbname=database" \
-#                  " user=root" \
-#                  " host=127.0.0.1" \
-#                  " password=password"
-
-# class Choices(Enum):
-#     EMIT_1 = auto()
-#     EMIT_12 = auto()
-#     NO_EMIT = auto()
-
-
-# node_no = sys.argv[1]
-# fake = faker.Faker()
-# conn = psycopg2.connect(DATABASE_SETUP)
-# conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
-
-# cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
-# channel_1 = f"basic_info_{node_no}"
-# channel_2 = f"full_info_{node_no}"
-# cur.execute(f"LISTEN {channel_1}")
-# cur.execute(f"LISTEN {channel_2}")
-
-# print(f"Waiting for notifications on channel '{channel_1}'")
-# print(f"Waiting for notifications on channel '{channel_2}'")
-# while True:
-#     if select.select([conn], [], []) == ([], [], []):
-#         print("Timeout")
-#     else:
-#         conn.poll()
-#         while conn.notifies:
-#             notify = conn.notifies.pop(0)
-
-#             serial = int(notify.payload)
-#             choice = np.random.choice(list(Choices), p=[.1, .6, .3])
-#             print(f"choice: {choice}")
-
-#             if notify.channel == channel_1:
-#                 print(f"channel 1: {serial}")
-#             else:
-#                 print(f"channel 2: {serial}")
-
 import sys
 import redis
 import faker
 import numpy as np
 from enum import Enum, auto
+from cachetools import LRUCache
+from datetime import datetime
+from datetime import timedelta
 
 
 class Choices(Enum):
@@ -61,24 +13,38 @@ class Choices(Enum):
     EMIT_12 = auto()
     NO_EMIT = auto()
 
-fake = faker.Faker()
 
+def what_to_do() -> Choices:
+    return np.random.choice(list(Choices), p=[.1, .6, .3])
+
+def emit(serial: int, request: str, r: redis.Redis) -> None:
+    serial = r.incr("emissions")
+    emission = f"emissions:{serial}"
+    r.set(emission, "true")
+    request_time = datetime.fromisoformat(r.hget(request, "datetime").decode())
+    ms_delta = (datetime.now() - request_time) / timedelta(milliseconds=1)
+    delayed_ad = ms_delta > 20
+
+
+fake = faker.Faker()
 node_no = sys.argv[1]
 channel_input_basic = f"basic_info_{node_no}"
 channel_input_full = f"full_info_{node_no}"
 r = redis.Redis(host='localhost', port=6379, db=0)
 p = r.pubsub(ignore_subscribe_messages=True)
 p.subscribe(channel_input_basic, channel_input_full)
+cache = LRUCache(100000)
 
 for message in p.listen():
     serial = int(message["data"])
-    user = f"users:{serial}"
-    choice = np.random.choice(list(Choices), p=[.1, .6, .3])
+    request = f"requests:{serial}"
     channel = message["channel"].decode()
-    print(user, choice)
-    if channel == channel_input_basic:
-        print("input basic")
-    elif channel == channel_input_full:
-        print("input full")
+    choice: Choices
+    if serial in cache:
+        choice = cache[serial]
     else:
-        assert False
+        choice = what_to_do()
+    print(request, choice)
+    if (channel == channel_input_basic and choice == Choices.EMIT_1 or
+        channel == channel_input_full and choice == Choices.EMIT_12):
+        emit(serial, request, r)
