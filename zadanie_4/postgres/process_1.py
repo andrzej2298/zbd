@@ -6,6 +6,7 @@ import psycopg2.extensions
 import numpy as np
 import faker
 from time import sleep
+from datetime import datetime
 
 DATABASE_SETUP = "dbname=database" \
                  " user=root" \
@@ -23,11 +24,12 @@ fake = faker.Faker()
 
 while True:
     user_cookie = fake.md5()
-    cur.execute(f"insert into user_ad_requests (cookie, ip) values ('{user_cookie}', '{fake.ipv4()}' :: inet) returning id")
+    cur.execute(f"insert into user_ad_requests (cookie, ip, dt)"
+                f"values ('{user_cookie}', '{fake.ipv4()}' :: inet, '{datetime.now()}') returning id")
     serial = cur.fetchone()["id"]
     query = f"notify {channel}, '{serial}'"
     print(query)
     cur.execute(query)
     print("sleep")
-    sleep(0.1)
+    sleep(.1)
 

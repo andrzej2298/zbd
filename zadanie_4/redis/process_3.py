@@ -14,16 +14,16 @@ class Choices(Enum):
     NO_EMIT = auto()
 
 
-def what_to_do() -> Choices:
-    return np.random.choice(list(Choices), p=[.1, .6, .3])
-
 def emit(serial: int, request: str, r: redis.Redis) -> None:
     serial = r.incr("emissions")
     emission = f"emissions:{serial}"
     r.set(emission, "true")
     request_time = datetime.fromisoformat(r.hget(request, "datetime").decode())
     ms_delta = (datetime.now() - request_time) / timedelta(milliseconds=1)
-    delayed_ad = ms_delta > 20
+    if ms_delta > 20:
+        r.incr("delayed")
+    else:
+        r.incr("on_time")
 
 
 fake = faker.Faker()
@@ -43,7 +43,7 @@ for message in p.listen():
     if serial in cache:
         choice = cache[serial]
     else:
-        choice = what_to_do()
+        choice = np.random.choice(list(Choices), p=[.1, .6, .3])
     print(request, choice)
     if (channel == channel_input_basic and choice == Choices.EMIT_1 or
         channel == channel_input_full and choice == Choices.EMIT_12):
