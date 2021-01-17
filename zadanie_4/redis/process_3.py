@@ -6,6 +6,7 @@ from enum import Enum, auto
 from cachetools import LRUCache
 from datetime import datetime
 from datetime import timedelta
+from time import sleep
 
 
 class Choices(Enum):
@@ -14,7 +15,8 @@ class Choices(Enum):
     NO_EMIT = auto()
 
 
-def emit(serial: int, request: str, r: redis.Redis) -> None:
+def emit(serial: int, request: str, r: redis.Redis, sleep_ms: int) -> None:
+    sleep(sleep_ms * 0.001)
     serial = r.incr("emissions")
     emission = f"emissions:{serial}"
     r.set(emission, "true")
@@ -28,6 +30,7 @@ def emit(serial: int, request: str, r: redis.Redis) -> None:
 
 fake = faker.Faker()
 node_no = sys.argv[1]
+sleep_ms = int(sys.argv[2])
 channel_input_basic = f"basic_info_{node_no}"
 channel_input_full = f"full_info_{node_no}"
 r = redis.Redis(host='localhost', port=6379, db=0)
@@ -47,4 +50,4 @@ for message in p.listen():
     print(request, choice)
     if (channel == channel_input_basic and choice == Choices.EMIT_1 or
         channel == channel_input_full and choice == Choices.EMIT_12):
-        emit(serial, request, r)
+        emit(serial, request, r, sleep_ms)

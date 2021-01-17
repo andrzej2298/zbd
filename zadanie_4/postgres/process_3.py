@@ -10,6 +10,7 @@ from enum import Enum, auto
 from cachetools import LRUCache
 from datetime import datetime
 from datetime import timedelta
+from time import sleep
 
 DATABASE_SETUP = "dbname=database" \
                  " user=root" \
@@ -22,7 +23,8 @@ class Choices(Enum):
     NO_EMIT = auto()
 
 
-def emit(serial: int, cur) -> None:
+def emit(serial: int, cur, sleep_ms: int) -> None:
+    sleep(sleep_ms * 0.001)
     cur.execute(f"insert into emissions (request_id) values ({serial})")
     cur.execute(f"select dt from user_ad_requests where id={serial}")
     request_time = cur.fetchone()["dt"]
@@ -33,8 +35,8 @@ def emit(serial: int, cur) -> None:
         cur.execute(f"insert into emissions_on_time (emission_id) values ({serial})")
 
 
-
 node_no = sys.argv[1]
+sleep_ms = int(sys.argv[2])
 fake = faker.Faker()
 conn = psycopg2.connect(DATABASE_SETUP)
 conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
@@ -65,7 +67,4 @@ while True:
 
             if (notify.channel == channel_1 and choice == Choices.EMIT_1 or
                 notify.channel == channel_2 and choice == Choices.EMIT_12):
-                print("emit")
-                emit(serial, cur)
-            else:
-                print("no emit")
+                emit(serial, cur, sleep_ms)

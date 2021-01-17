@@ -1,0 +1,65 @@
+#+TITLE: Zadanie 4
+#+AUTHOR: Andrzej Michnowski
+#+LATEX_HEADER: \usepackage[margin=1in]{geometry}
+#+OPTIONS: date:nil toc:nil
+
+* Wprowadzenie
+
+Ten raport ma na celu porównać użycie Postgresa i Redisa w prostym systemie wyświetlania reklam, z uwzględnieniem ograniczeń sprzętowych serwera reklamowego. Rozwiązania były testowane w kontenerach dockerowych ograniczonych do jednego rdzenia procesora oraz 512M RAM.
+
+Serwer składa się z trzech rodzajów procesów. Dla uproszczenia logiki procesy są dzielone w grupy po trzy procesy. W każdej grupie jest jeden proces danego typu (w ten sposób procesy wysyłają wiadomości za pomocą kanału do konkretnych procesów ze swojej grupy, a nie do wszystkich). Do komunikacji w rozwiązaniu Postgresowym wykorzystany jest mechanizm ~LISTEN/NOTIFY~ Na początku podam w pseudokodzie sposób działania procesów:
+
+#+BEGIN_SRC
+# proces typu 1
+NUMER_GRUPY = ...
+wstaw do tabeli user_ad_requests nowe zapytanie o reklamę o id X
+wstaw X na kanał basic_info_NUMER_GRUPY
+
+# proces typu 2
+NUMER_GRUPY = ...
+pobierz z kanału basic_info_NUMER_GRUPY identyfikator X
+wstaw X na kanału full_info_NUMER_GRUPY
+
+# proces typu 3
+NUMER_GRUPY = ...
+pobierz z kanału basic_info_NUMER_GRUPY lub full_info_NUMER_GRUPY identyfikator X
+
+jeśli decyzja dotycząca X jest w cache'u, to pobierz ją stamtąd
+jeśli X nie ma w cache'u, to podejmij decyzję co zrobić z reklamą X
+
+jeśli decyzja to WYEMITUJ PO WIADOMOŚCI OD PROCESU 1
+      oraz wiadomość przyszła z kanału basic_info_NUMER_GRUPY
+lub   decyzja to WYEMITUJ PO WIADOMOŚCIACH OD PROCESÓW 1 i 2
+      oraz wiadomość przyszła z kanału full_info_NUMER_GRUPY
+to wyemituj reklamę
+
+#+END_SRC
+
+\pagebreak
+
+* Brak spowolnienia spowodowanego obliczeniami przed emisją
+
+Najpierw spójrzmy jak wyglądają statystyki reklam wysłanych na czas i opóźnionych w zależności od liczby uruchomionych grup procesów ($\text{liczba procesów} = 3 \cdot \text{liczba grup}$) w przypadku minimalnego czasu przygotowania reklamy (proces 3 wysyła reklamę od razu po otrzymaniu informacji o reklamie do wyemitowania).
+
+[[~/mim/zbd/zadanie_4/dane/raw_both.png]]
+
+
+Jak widać, do pewnego momentu wyniki Postgresa są podobne do wyników Redisa. Natomiast mniej więcej od 8 uruchomionych grup procesów liczba opóźnionych reklam dla Postgresa drastycznie wzrasta. W okolicach 8--10 grup osiągane są limity wykorzystania procesora oraz pamięci w obu podejściach. Wniosek z tego, że procesy Redisa są w stanie lepiej wykorzystać oszczędne zasoby serwera.
+
+\pagebreak
+
+* Przed emisją reklamy proces wykonuje obliczenia
+
+[[~/mim/zbd/zadanie_4/dane/raw_both_delay.png]]
+
+Podejście przyjęte w poprzednim punkcie nie jest realistyczne. W świecie rzeczywistym w momencie kiedy system wyświetlania reklam otrzyma już wszystkie informacje o użytkowniku może chcieć przeprowadzić różnorodne obliczenia zanim zdecyduje czy i jaką reklamę wyświetli użytkownikowi. Być może w tym czasie będzie wykonywał zapytania do zewnętrznych dostawców reklam lub dopasowywał profil użytkownika do reklam które potencjalnie chciałby mu wyświetlić (np. jeśli użytkownik w przeszłości widział jakąś reklamę, to nie chce już jej widzieć, albo jeśli kiedyś odwiedził stronę z telefonami, może chciałby zobaczyć reklamę z pokrowcami na telefon). Żeby lepiej zamodelować świat rzeczywisty do procesu 3 wprowadzona została faza obliczeń, w której proces ten śpi przez pewien czas zanim wyemituje reklamę.
+
+Na wykresach przestawione są wyniki Postgresa i Redisa w zależności od długości fazy obliczeń. Tak jak na pierwszym wykresie, brana jest pod uwagę również liczba uruchomionych procesów serwera. Już 5 ms obliczeń poważnie pogarsza wydajność rozwiązania opartego na Postgresie.
+
+\pagebreak
+
+* Podsumowanie
+
+
+* Kod programu
+
